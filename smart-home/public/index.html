@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Климат-контроль</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            display: flex; justify-content: center; align-items: center; 
+            min-height: 100vh; color: #fff; transition: background 1s ease;
+            background-color: #121212;
+        }
+        
+        body.bg-normal { background: radial-gradient(circle, #1e3c72 0%, #2a5298 100%); }
+        body.bg-hot { background: radial-gradient(circle, #ff4b1f 0%, #ff9068 100%); }
+        body.bg-cold { background: radial-gradient(circle, #2980B9 0%, #6DD5FA 100%); }
+
+        body.emergency-flash { animation: flashRed 0.5s infinite alternate; }
+        @keyframes flashRed {
+            0% { background: #121212; }
+            100% { background: #ff0000; }
+        }
+
+        .dashboard {
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(15px);
+            padding: 40px; border-radius: 25px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+            text-align: center; width: 90%; max-width: 500px;
+            border: 1px solid rgba(255,255,255,0.1);
+            position: relative;
+            z-index: 10;
+        }
+        .time { font-size: 24px; color: #aaa; margin-bottom: 20px; font-weight: 300; }
+        .temp-value { 
+            font-size: 100px; font-weight: bold; margin: 10px 0; 
+            text-shadow: 0 0 20px rgba(255,255,255,0.4); 
+        }
+        .status-badge {
+            display: inline-block; padding: 10px 20px; border-radius: 30px;
+            font-weight: bold; font-size: 16px; margin-bottom: 30px;
+            text-transform: uppercase; letter-spacing: 1px;
+        }
+        
+        .badge-normal { background: #00e676; color: #000; }
+        .badge-hot { background: #ff1744; color: #fff; animation: pulse 1.5s infinite; }
+        .badge-cold { background: #00e5ff; color: #000; animation: pulse 1.5s infinite; }
+
+        .pets-widget {
+            background: rgba(255, 255, 255, 0.1); padding: 20px;
+            border-radius: 15px; margin-top: 20px;
+        }
+        .pets-widget h3 { font-size: 18px; margin-bottom: 10px; color: #ffd700; }
+        .pets-status { font-size: 16px; }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+    </style>
+</head>
+<body id="appBody" class="bg-normal">
+
+    <div class="dashboard">
+        <div class="time" id="clock">00:00:00</div>
+        
+        <h2>ТЕМПЕРАТУРА В ДОМЕ</h2>
+        <div class="temp-value" id="tempDisplay">--°C</div>
+        
+        <div class="status-badge badge-normal" id="statusBadge">Загрузка...</div>
+
+        <div class="pets-widget">
+            <h3>🐹 Сенсоры комфорта</h3>
+            <div class="pets-status" id="petsStatus">Опрос систем...</div>
+        </div>
+    </div>
+
+    <script>
+        setInterval(() => {
+            document.getElementById('clock').innerText = new Date().toLocaleTimeString('ru-RU');
+        }, 1000);
+
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playSiren() {
+            if(audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.5);
+            gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.5);
+        }
+
+        let isSirenPlaying = false;let sirenInterval;
+
+        async function fetchStatus() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                
+                const appBody = document.getElementById('appBody');
+                const tempDisplay = document.getElementById('tempDisplay');
+                const statusBadge = document.getElementById('statusBadge');
+                const petsStatus = document.getElementById('petsStatus');
+
+                if (data.temperature !== undefined) {
+                    tempDisplay.innerText = `${data.temperature}°C`;
+                    statusBadge.innerText = data.alertMessage;
+                    
+                    appBody.className = '';
+                    statusBadge.className = 'status-badge';
+
+                    if (data.status === 'hot') {
+                        appBody.classList.add('bg-hot', 'emergency-flash');
+                        statusBadge.classList.add('badge-hot');
+                        petsStatus.innerText = "🚨 Рекуше и Абрикосе слишком жарко! Охлаждаем!";
+                        
+                        if (!isSirenPlaying && data.temperature >= 30) {
+                            sirenInterval = setInterval(playSiren, 1000);
+                            isSirenPlaying = true;
+                        }
+                    } else if (data.status === 'cold') {
+                        appBody.classList.add('bg-cold');
+                        statusBadge.classList.add('badge-cold');
+                        petsStatus.innerText = "❄️ Рекуша и Абрикося мерзнут! Греем комнату!";
+                        stopSiren();
+                    } else {
+                        appBody.classList.add('bg-normal');
+                        statusBadge.classList.add('badge-normal');
+                        petsStatus.innerText = "✅ Рекуша и Абрикося кайфуют. Температура идеальна!";
+                        stopSiren();
+                    }
+                } else {
+                    statusBadge.innerText = "Ошибка сенсора";
+                    petsStatus.innerText = "Нет связи с базой";
+                }
+            } catch (error) {
+                console.error("Ошибка:", error);
+            }
+        }
+
+        function stopSiren() {
+            if (isSirenPlaying) {
+                clearInterval(sirenInterval);
+                isSirenPlaying = false;
+            }
+        }
+
+        document.body.addEventListener('click', () => {
+            if(audioCtx.state === 'suspended') audioCtx.resume();
+        });
+
+        setInterval(fetchStatus, 5000);
+        fetchStatus();
+    </script>
+</body>
+</html>
