@@ -1,36 +1,54 @@
 const axios = require('axios');
 
-// Твой токен и ID градусника вписаны прямо сюда, чтобы всё работало без ошибок!
+// Твой токен Яндекса
 const YANDEX_TOKEN = 'y0__wgBEO3Uk7gCGMyFTSCsyfC7GSyyBY5AQ1ZpnJuOn_wOkDrG4eAq';
-const DEVICE_ID = '23c6f5d6-493d-456d-a9e1-2a4297557a1a'; 
+
+// Тот самый выделенный ID "Рекуша термометр"
+const DEVICE_ID = '6953b637-b0a4-44ff-9ab3-e8345f385105'; 
 
 module.exports = async (req, res) => {
     try {
-        // Запрашиваем данные именно твоего градусника
-        const response = await axios.get(`https://api.iot.yandex.net/v1.0/devices/${DEVICE_ID}`, {
+        // Безопасный запрос: берем данные из памяти Яндекса (кэша)
+        const response = await axios.get(`https://api.iot.yandex.net/v1.0/user/info`, {
             headers: { 'Authorization': `Bearer ${YANDEX_TOKEN}` }
         });
 
-        const device = response.data;
-        
-        // Достаем точную температуру из ответа Яндекса
-        let temperature = null;
-        if (device.properties) {
-            const tempProperty = device.properties.find(p => p.type === 'devices.property.float' && p.parameters.instance === 'temperature');
-            if (tempProperty && tempProperty.value) {
-                temperature = tempProperty.value;
+        const data = response.data;
+        let targetDevice = null;
+
+        // Ищем градусник "Рекуша термометр" в кэше
+        if (data.households) {
+            for (const household of data.households) {
+                if (household.devices) {
+                    const found = household.devices.find(d => d.id === DEVICE_ID);
+                    if (found) {
+                        targetDevice = found;
+                        break;
+                    }
+                }
             }
         }
 
-        // Отправляем температуру на твой сайт
+        if (!targetDevice) {
+            return res.status(404).json({ error: "Градусник не найден в кэше" });
+        }
+        
+        // Достаем температуру
+        let temperature = null;
+        if (targetDevice.properties) {
+            const tempProperty = targetDevice.properties.find(p => p.type === 'devices.property.float' && p.parameters.instance === 'temperature');
+            if (tempProperty && tempProperty.state && tempProperty.state.value !== undefined) {
+                temperature = tempProperty.state.value;
+            }
+        }
+
         res.status(200).json({
-            name: device.name,
+            name: targetDevice.name,
             temperature: temperature,
             status: 'online'
         });
 
     } catch (error) {
-        // Если что-то пойдет не так, сайт покажет причину
         res.status(500).json({ 
             error: "Ошибка при запросе к Яндексу", 
             details: error.response ? error.response.data : error.message 
