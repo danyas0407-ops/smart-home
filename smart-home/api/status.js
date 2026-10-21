@@ -1,43 +1,39 @@
 const axios = require('axios');
 
-// Твой актуальный токен Умного дома
+// Твой токен и ID градусника вписаны прямо сюда, чтобы всё работало без ошибок!
 const YANDEX_TOKEN = 'y0__wgBEO3Uk7gCGMyFTSCsyfC7GSyyBY5AQ1ZpnJuOn_wOkDrG4eAq';
+const DEVICE_ID = '23c6f5d6-493d-456d-a9e1-2a4297557a1a'; 
 
-async function getDevices() {
+module.exports = async (req, res) => {
     try {
-        // Правильный адрес для получения списка устройств в API Яндекса
-        const response = await axios.get('https://api.iot.yandex.net/v1.0/user/info', {
+        // Запрашиваем данные именно твоего градусника
+        const response = await axios.get(`https://api.iot.yandex.net/v1.0/devices/${DEVICE_ID}`, {
             headers: { 'Authorization': `Bearer ${YANDEX_TOKEN}` }
         });
 
-        console.log("=== ТВОИ УСТРОЙСТВА ===");
+        const device = response.data;
         
-        // Яндекс возвращает устройства внутри объекта households или directly в devices
-        const households = response.data.households || [];
-        households.forEach(household => {
-            if (household.devices) {
-                household.devices.forEach(device => {
-                    console.log(`Название: ${device.name}`);
-                    console.log(`ID: ${device.id}`);
-                    console.log(`Тип: ${device.type}`);
-                    console.log('------------------------');
-                });
+        // Достаем точную температуру из ответа Яндекса
+        let temperature = null;
+        if (device.properties) {
+            const tempProperty = device.properties.find(p => p.type === 'devices.property.float' && p.parameters.instance === 'temperature');
+            if (tempProperty && tempProperty.value) {
+                temperature = tempProperty.value;
             }
-        });
-
-        // Если устройства прилетели общим списком
-        if (response.data.devices) {
-            response.data.devices.forEach(device => {
-                console.log(`Название: ${device.name}`);
-                console.log(`ID: ${device.id}`);
-                console.log(`Тип: ${device.type}`);
-                console.log('------------------------');
-            });
         }
 
-    } catch (error) {
-        console.error("Ошибка:", error.response ? error.response.data : error.message);
-    }
-}
+        // Отправляем температуру на твой сайт
+        res.status(200).json({
+            name: device.name,
+            temperature: temperature,
+            status: 'online'
+        });
 
-getDevices();
+    } catch (error) {
+        // Если что-то пойдет не так, сайт покажет причину
+        res.status(500).json({ 
+            error: "Ошибка при запросе к Яндексу", 
+            details: error.response ? error.response.data : error.message 
+        });
+    }
+};
